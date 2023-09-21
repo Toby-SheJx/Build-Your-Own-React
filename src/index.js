@@ -90,16 +90,31 @@ function createTextElement(value) {
   }
 }
 
-const Teact = { createElement };
+function render(element, container) {
+  const dom = element.type === "TEXT_ELEMENT" ? 
+    document.createTextNode(element.props.nodeValue) : 
+    document.createElement(element.type);
+
+  const isProperty = key => key !== "children";
+  Object.keys(element.props).filter(isProperty).map(name => {
+    dom[name] = element.props[name];
+  });
+
+  element.props.children.map(child => render(child, dom));
+
+  container.appendChild(dom);
+}
+
+const Teact = { createElement, render };
 
 /** @jsxRuntime classic */
 /** @jsx Teact.createElement */
 const container = document.getElementById("root");
 const element = (
-  <div id="box">
+  <div style="color: red;" id="box">
     <a>Hello React</a>
     <b />
   </div>
 );
-console.warn(" element ", element);
-ReactDOM.render(element, container);
+Teact.render(element, container);
+// ReactDOM.render(element, container);
