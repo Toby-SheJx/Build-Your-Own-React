@@ -71,7 +71,6 @@ import './index.css';
 
 /** Step.2 实现 */
 function createElement(type, props, ...children) {
-  console.warn(" run Teact.createElement ");
   return {
     type,
     props: {
@@ -117,4 +116,23 @@ const element = (
   </div>
 );
 Teact.render(element, container);
-// ReactDOM.render(element, container);
+
+
+/** Character.3 并行模式（分割工作片段） */
+let nextUnitOfWork = null;
+function workLoop(deadLine) {
+  let shouldYield = false;
+  while (nextUnitOfWork && !shouldYield) {
+    nextUnitOfWork = performUnitOfWork(nextUnitOfWork);
+
+    shouldYield = deadLine.timeRemaining() < 1;
+  }
+
+  requestIdleCallback(workLoop);
+}
+
+requestIdleCallback(workLoop);
+
+function performUnitOfWork(nextUnitOfWork) {
+  
+}
