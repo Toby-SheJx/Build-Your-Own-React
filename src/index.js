@@ -106,6 +106,7 @@ function createTextElement(value) {
 // }
 
 let nextUnitOfWork = null;
+let wipRoot = null; // work in progress root
 
 function createDom(fiber) {
   const dom = fiber.type === "TEXT_ELEMENT" ? 
@@ -122,12 +123,14 @@ function createDom(fiber) {
 
 /** 初始化 nextUnitOfWork，即Fiber Tree根节点的Fiber */
 function render(element, container) {
-  nextUnitOfWork = {
+  wipRoot = {
     dom: container,
     props: {
       children: [element]
     }
-  }
+  };
+
+  nextUnitOfWork = wipRoot;
 }
 
 const Teact = { createElement, render };
@@ -153,7 +156,11 @@ function workLoop(deadLine) {
     shouldYield = deadLine.timeRemaining() < 1;
   }
 
-  requestIdleCallback(workLoop);
+  if (!nextUnitOfWork && wipRoot) {
+    commitRoot();
+  }
+
+  requestIdleCallback(workLoop); // TODO - 这里需要判断条件停止吧
 }
 
 requestIdleCallback(workLoop);
@@ -164,9 +171,9 @@ function performUnitOfWork(fiber) {
     fiber.dom = createDom(fiber);
   }
 
-  if (fiber.parent) {
-    fiber.parent.dom.appendChild(fiber.dom);
-  }
+  // if (fiber.parent) {
+  //   fiber.parent.dom.appendChild(fiber.dom);
+  // }
 
   // 创建当前元素的子级Fiber节点们，构建Fiber Tree
   const elements = fiber.props.children;
@@ -207,4 +214,18 @@ function performUnitOfWork(fiber) {
 
     nextFiber = nextFiber.parent;
   }
+}
+
+function commitRoot() {
+  commitWork(wipRoot.child);
+  wipRoot = null;
+}
+
+function commitWork(fiber) {
+  if (!fiber) return;
+
+  const domParent = fiber.parent.dom;
+  domParent.appendChild(fiber.dom);
+  commitWork(fiber.child);
+  commitWork(fiber.sibling);
 }
