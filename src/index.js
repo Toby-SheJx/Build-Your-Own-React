@@ -89,19 +89,45 @@ function createTextElement(value) {
   }
 }
 
-function render(element, container) {
-  const dom = element.type === "TEXT_ELEMENT" ? 
-    document.createTextNode(element.props.nodeValue) : 
-    document.createElement(element.type);
+/** 在 Character 4 中重构 */
+// function render(element, container) {
+//   const dom = element.type === "TEXT_ELEMENT" ? 
+//     document.createTextNode(element.props.nodeValue) : 
+//     document.createElement(element.type);
+
+//   const isProperty = key => key !== "children";
+//   Object.keys(element.props).filter(isProperty).map(name => {
+//     dom[name] = element.props[name];
+//   });
+
+//   element.props.children.map(child => render(child, dom));
+
+//   container.appendChild(dom);
+// }
+
+let nextUnitOfWork = null;
+
+function createDom(fiber) {
+  const dom = fiber.type === "TEXT_ELEMENT" ? 
+    document.createTextNode("") : 
+    document.createElement(fiber.type);
 
   const isProperty = key => key !== "children";
-  Object.keys(element.props).filter(isProperty).map(name => {
-    dom[name] = element.props[name];
+  Object.keys(fiber.props).filter(isProperty).map(name => {
+    dom[name] = fiber.props[name];
   });
 
-  element.props.children.map(child => render(child, dom));
+  return dom;
+}
 
-  container.appendChild(dom);
+/** 初始化 nextUnitOfWork，即Fiber Tree根节点的Fiber */
+function render(element, container) {
+  nextUnitOfWork = {
+    dom: container,
+    props: {
+      children: [element]
+    }
+  }
 }
 
 const Teact = { createElement, render };
@@ -119,7 +145,6 @@ Teact.render(element, container);
 
 
 /** Character.3 并行模式（分割工作片段） */
-let nextUnitOfWork = null;
 function workLoop(deadLine) {
   let shouldYield = false;
   while (nextUnitOfWork && !shouldYield) {
@@ -133,6 +158,53 @@ function workLoop(deadLine) {
 
 requestIdleCallback(workLoop);
 
-function performUnitOfWork(nextUnitOfWork) {
-  
+function performUnitOfWork(fiber) {
+  // 将元素添加到真实DOM结构中
+  if (!fiber.dom) {
+    fiber.dom = createDom(fiber);
+  }
+
+  if (fiber.parent) {
+    fiber.parent.dom.appendChild(fiber.dom);
+  }
+
+  // 创建当前元素的子级Fiber节点们，构建Fiber Tree
+  const elements = fiber.props.children;
+  let index = 0;
+  let prevSibling = null;
+
+  while (index < elements.length) {
+    const element = elements[index];
+
+    const newFiber = {
+      type: element.type,
+      props: element.props,
+      parent: fiber,
+      dom: null
+    }
+
+    // 设置指向子节点和兄弟节点的指针
+    if (index === 0) {
+      fiber.child = newFiber;
+    } else {
+      prevSibling.sibling = newFiber;
+    }
+
+    prevSibling = newFiber;
+    index++;
+  }
+
+  // 返回下一个渲染工作片段
+  if (fiber.child) {
+    return fiber.child;
+  }
+
+  let nextFiber = fiber;
+  while (nextFiber) {
+    if (nextFiber.sibling) {
+      return nextFiber.sibling;
+    }
+
+    nextFiber = nextFiber.parent;
+  }
 }
