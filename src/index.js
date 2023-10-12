@@ -106,7 +106,9 @@ function createTextElement(value) {
 // }
 
 let nextUnitOfWork = null;
-let wipRoot = null; // work in progress root
+let wipRoot = null;         // work in progress root
+let currentRoot = null;     // root commit in last phase
+let deletions = null;       // track delete fiber node
 
 function createDom(fiber) {
   const dom = fiber.type === "TEXT_ELEMENT" ? 
@@ -127,10 +129,12 @@ function render(element, container) {
     dom: container,
     props: {
       children: [element]
-    }
+    },
+    alternate: currentRoot
   };
 
   nextUnitOfWork = wipRoot;
+  deletions = [];
 }
 
 const Teact = { createElement, render };
@@ -165,6 +169,21 @@ function workLoop(deadLine) {
 
 requestIdleCallback(workLoop);
 
+function commitRoot() {
+  commitWork(wipRoot.child);
+  currentRoot = wipRoot;
+  wipRoot = null;
+}
+
+function commitWork(fiber) {
+  if (!fiber) return;
+
+  const domParent = fiber.parent.dom;
+  domParent.appendChild(fiber.dom);
+  commitWork(fiber.child);
+  commitWork(fiber.sibling);
+}
+
 function performUnitOfWork(fiber) {
   // 将元素添加到真实DOM结构中
   if (!fiber.dom) {
@@ -177,29 +196,7 @@ function performUnitOfWork(fiber) {
 
   // 创建当前元素的子级Fiber节点们，构建Fiber Tree
   const elements = fiber.props.children;
-  let index = 0;
-  let prevSibling = null;
-
-  while (index < elements.length) {
-    const element = elements[index];
-
-    const newFiber = {
-      type: element.type,
-      props: element.props,
-      parent: fiber,
-      dom: null
-    }
-
-    // 设置指向子节点和兄弟节点的指针
-    if (index === 0) {
-      fiber.child = newFiber;
-    } else {
-      prevSibling.sibling = newFiber;
-    }
-
-    prevSibling = newFiber;
-    index++;
-  }
+  reconcileChildren(fiber, elements);
 
   // 返回下一个渲染工作片段
   if (fiber.child) {
@@ -216,16 +213,63 @@ function performUnitOfWork(fiber) {
   }
 }
 
-function commitRoot() {
-  commitWork(wipRoot.child);
-  wipRoot = null;
-}
+function reconcileChildren(wipFiber, elements) {
+  let index = 0;
+  let prevSibling = null;
+  let oldFiber = wipFiber.alternate && wipFiber.alternate.child;
 
-function commitWork(fiber) {
-  if (!fiber) return;
+  while (index < elements.length || oldFiber !== null) {
+    const element = elements[index];
 
-  const domParent = fiber.parent.dom;
-  domParent.appendChild(fiber.dom);
-  commitWork(fiber.child);
-  commitWork(fiber.sibling);
+    let newFiber = null;
+
+    // 当前要渲染的element与上一次commit的Fiber Tree节点进行比较
+    const sameType = oldFiber && element && element.type === oldFiber.type;
+
+    if (sameType) { // update
+      newFiber = {
+        type: oldFiber.type,
+        props: element.props,
+        dom: oldFiber.dom,
+        parent: wipFiber,
+        alternate: oldFiber,
+        effectTag: "UPDATE"
+      }
+    }
+    if (element && !sameType) { // add
+      newFiber = {
+        type: element.type,
+        props: element.props,
+        dom: null,
+        parent: wipFiber,
+        alternate: null,
+        effectTag: "PLACEMENT"
+      }
+    }
+    if (oldFiber && !sameType) { // delete
+      oldFiber.effectTag = "DELETION";
+      deletions.push(oldFiber);
+    }
+
+    if (oldFiber) {
+      oldFiber = oldFiber.sibling;
+    }
+
+    // const newFiber = {
+    //   type: element.type,
+    //   props: element.props,
+    //   parent: wipFiber,
+    //   dom: null
+    // }
+
+    // 设置指向子节点和兄弟节点的指针
+    if (index === 0) {
+      wipFiber.child = newFiber;
+    } else {
+      prevSibling.sibling = newFiber;
+    }
+
+    prevSibling = newFiber;
+    index++;
+  }
 }
