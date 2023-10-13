@@ -108,7 +108,7 @@ function createTextElement(value) {
 let nextUnitOfWork = null;
 let wipRoot = null;         // work in progress root
 let currentRoot = null;     // root commit in last phase
-let deletions = null;       // track delete fiber node
+let deletions = null;       // track delete fiber node - TODO 有什么作用呢？
 
 function createDom(fiber) {
   const dom = fiber.type === "TEXT_ELEMENT" ? 
@@ -150,7 +150,6 @@ const element = (
 );
 Teact.render(element, container);
 
-
 /** Character.3 并行模式（分割工作片段） */
 function workLoop(deadLine) {
   let shouldYield = false;
@@ -170,6 +169,7 @@ function workLoop(deadLine) {
 requestIdleCallback(workLoop);
 
 function commitRoot() {
+  deletions.map(item => commitWork(item));
   commitWork(wipRoot.child);
   currentRoot = wipRoot;
   wipRoot = null;
@@ -179,7 +179,14 @@ function commitWork(fiber) {
   if (!fiber) return;
 
   const domParent = fiber.parent.dom;
-  domParent.appendChild(fiber.dom);
+  if (fiber.effectTag === "PLACEMENT" && fiber.dom !== null) {
+    domParent.appendChild(fiber.dom);
+  } else if (fiber.effectTag === "DELETION") {
+    domParent.removeChild(fiber.dom); // TODO - 有什么作用呢？要删除的元素似乎本就不在DOM结构中
+  } else if (fiber.effectTag === "UDPATE" && fiber.dom !== null) {
+    updateDom(fiber.dom, fiber.alternate.props, fiber.props);
+  }
+
   commitWork(fiber.child);
   commitWork(fiber.sibling);
 }
@@ -272,4 +279,28 @@ function reconcileChildren(wipFiber, elements) {
     prevSibling = newFiber;
     index++;
   }
+}
+
+const isEvent = key => key.startsWith("on");
+const isProperty = key => key !== "children" && !isEvent(key);
+const isNew = (prev, next) => key => prev[key] !== next[key];
+const isGone = next => key => !(key in next);
+function updateDom(dom, prevProps, nextProps) {
+  // 移除变更的监听事件，TODO - 判断变更的条件是否重复？
+  Object.keys(prevProps).filter(isEvent).filter(key => isGone(nextProps)(key) || isNew(prevProps, nextProps)(key)).map(name => {
+    const eventType = name.toLowerCase().substring(2);
+    dom.removeEventListener(eventType, prevProps[name]);
+  });
+
+  // 添加新增或变更的监听事件
+  Object.keys(nextProps).filter(isEvent).filter(isNew(prevProps, nextProps)).map(name => {
+    const eventType = name.toLowerCase().substring(2);
+    dom.addEventListener(eventType, nextProps[name]);
+  });
+
+  // 移除变更的props
+  Object.keys(prevProps).filter(isProperty).filter(isGone(nextProps)).map(name => dom[name] = "");
+
+  // 添加新增或变化的props
+  Object.keys(nextProps).filter(isProperty).filter(isNew(prevProps, nextProps)).map(name => dom[name] = nextProps[name]);
 }
