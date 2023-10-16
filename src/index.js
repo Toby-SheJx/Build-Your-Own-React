@@ -108,7 +108,7 @@ function createTextElement(value) {
 let nextUnitOfWork = null;
 let wipRoot = null;         // work in progress root
 let currentRoot = null;     // root commit in last phase
-let deletions = null;       // track delete fiber node - TODO 有什么作用呢？
+let deletions = null;       // track delete fiber node
 
 function createDom(fiber) {
   const dom = fiber.type === "TEXT_ELEMENT" ? 
@@ -150,6 +150,14 @@ const element = (
 );
 Teact.render(element, container);
 
+setTimeout(() => {
+  Teact.render((
+    <div style="color: green;" id="box" onClick={() => console.warn(" update ")}>
+      <a>Hello React !!!</a>
+    </div>
+  ), container);
+}, 2000);
+
 /** Character.3 并行模式（分割工作片段） */
 function workLoop(deadLine) {
   let shouldYield = false;
@@ -163,7 +171,7 @@ function workLoop(deadLine) {
     commitRoot();
   }
 
-  requestIdleCallback(workLoop); // TODO - 这里需要判断条件停止吧
+  requestIdleCallback(workLoop);
 }
 
 requestIdleCallback(workLoop);
@@ -182,8 +190,10 @@ function commitWork(fiber) {
   if (fiber.effectTag === "PLACEMENT" && fiber.dom !== null) {
     domParent.appendChild(fiber.dom);
   } else if (fiber.effectTag === "DELETION") {
-    domParent.removeChild(fiber.dom); // TODO - 有什么作用呢？要删除的元素似乎本就不在DOM结构中
-  } else if (fiber.effectTag === "UDPATE" && fiber.dom !== null) {
+    // 要删除的元素不在当前要渲染DOM结构中，而是在上一次渲染的DOM结构中。
+    // 但当前渲染是基于上一次渲染的，所以我们要通过上一次渲染的DOM结构将其进行删除。
+    domParent.removeChild(fiber.dom);
+  } else if (fiber.effectTag === "UPDATE" && fiber.dom !== null) {
     updateDom(fiber.dom, fiber.alternate.props, fiber.props);
   }
 
@@ -225,7 +235,7 @@ function reconcileChildren(wipFiber, elements) {
   let prevSibling = null;
   let oldFiber = wipFiber.alternate && wipFiber.alternate.child;
 
-  while (index < elements.length || oldFiber !== null) {
+  while (index < elements.length || (oldFiber !== null && oldFiber !== undefined)) {
     const element = elements[index];
 
     let newFiber = null;
@@ -286,7 +296,7 @@ const isProperty = key => key !== "children" && !isEvent(key);
 const isNew = (prev, next) => key => prev[key] !== next[key];
 const isGone = next => key => !(key in next);
 function updateDom(dom, prevProps, nextProps) {
-  // 移除变更的监听事件，TODO - 判断变更的条件是否重复？
+  // 移除变更的监听事件
   Object.keys(prevProps).filter(isEvent).filter(key => isGone(nextProps)(key) || isNew(prevProps, nextProps)(key)).map(name => {
     const eventType = name.toLowerCase().substring(2);
     dom.removeEventListener(eventType, prevProps[name]);
