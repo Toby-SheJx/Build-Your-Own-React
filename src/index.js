@@ -141,22 +141,37 @@ const Teact = { createElement, render };
 
 /** @jsxRuntime classic */
 /** @jsx Teact.createElement */
-const container = document.getElementById("root");
-const element = (
-  <div style="color: red;" id="box">
-    <a>Hello React</a>
-    <b />
-  </div>
-);
-Teact.render(element, container);
+// const container = document.getElementById("root");
+// const element = (
+//   <div style="color: red;" id="box">
+//     <a>Hello React</a>
+//     <b />
+//   </div>
+// );
+// Teact.render(element, container);
 
-setTimeout(() => {
-  Teact.render((
-    <div style="color: green;" id="box" onClick={() => console.warn(" update ")}>
-      <a>Hello React !!!</a>
+// setTimeout(() => {
+//   Teact.render((
+//     <div style="color: green;" id="box" onClick={() => console.warn(" update ")}>
+//       <a>Hello React !!!</a>
+//     </div>
+//   ), container);
+// }, 2000);
+
+/** 函数式组件 */
+/** @jsxRuntime classic */
+/** @jsx Teact.createElement */
+function App(props) {
+  return (
+    <div>
+      <h1>Hi {props.name}</h1>
     </div>
-  ), container);
-}, 2000);
+  );
+}
+
+const element = <App name="Toby" />;
+const container = document.getElementById("root");
+Teact.render(element, container);
 
 /** Character.3 并行模式（分割工作片段） */
 function workLoop(deadLine) {
@@ -186,13 +201,22 @@ function commitRoot() {
 function commitWork(fiber) {
   if (!fiber) return;
 
-  const domParent = fiber.parent.dom;
+  // const domParent = fiber.parent.dom;
+  
+  let domParentFiber = fiber.parent;
+  while (!domParentFiber.dom) {
+    domParentFiber = domParentFiber.parent;
+  }
+  const domParent = domParentFiber.dom;
+
   if (fiber.effectTag === "PLACEMENT" && fiber.dom !== null) {
     domParent.appendChild(fiber.dom);
   } else if (fiber.effectTag === "DELETION") {
     // 要删除的元素不在当前要渲染DOM结构中，而是在上一次渲染的DOM结构中。
     // 但当前渲染是基于上一次渲染的，所以我们要通过上一次渲染的DOM结构将其进行删除。
-    domParent.removeChild(fiber.dom);
+    // domParent.removeChild(fiber.dom);
+
+    commitDeletion(fiber, domParent);
   } else if (fiber.effectTag === "UPDATE" && fiber.dom !== null) {
     updateDom(fiber.dom, fiber.alternate.props, fiber.props);
   }
@@ -201,19 +225,21 @@ function commitWork(fiber) {
   commitWork(fiber.sibling);
 }
 
-function performUnitOfWork(fiber) {
-  // 将元素添加到真实DOM结构中
-  if (!fiber.dom) {
-    fiber.dom = createDom(fiber);
+function commitDeletion(fiber, domParent) {
+  if (fiber.dom) {
+    domParent.removeChild(fiber.dom);
+  } else {
+    commitDeletion(fiber.child, domParent);
   }
+}
 
-  // if (fiber.parent) {
-  //   fiber.parent.dom.appendChild(fiber.dom);
-  // }
-
-  // 创建当前元素的子级Fiber节点们，构建Fiber Tree
-  const elements = fiber.props.children;
-  reconcileChildren(fiber, elements);
+function performUnitOfWork(fiber) {
+  const isFunctionComponent = fiber.type instanceof Function;
+  if (isFunctionComponent) {
+    updateFunctionComponent(fiber);
+  } else {
+    updateHostComponent(fiber);
+  }
 
   // 返回下一个渲染工作片段
   if (fiber.child) {
@@ -228,6 +254,28 @@ function performUnitOfWork(fiber) {
 
     nextFiber = nextFiber.parent;
   }
+}
+
+function updateFunctionComponent(fiber) {
+  // 创建当前元素的子级Fiber节点们，构建Fiber Tree
+  // 函数式组件的子级节点通过运行函数获取
+  const elements = [fiber.type(fiber.props)];
+  reconcileChildren(fiber, elements);
+}
+
+function updateHostComponent(fiber) {
+  // 创建真实DOM节点
+  if (!fiber.dom) {
+    fiber.dom = createDom(fiber);
+  }
+
+  // if (fiber.parent) {
+  //   fiber.parent.dom.appendChild(fiber.dom);
+  // }
+
+  // 创建当前元素的子级Fiber节点们，构建Fiber Tree
+  const elements = fiber.props.children;
+  reconcileChildren(fiber, elements);
 }
 
 function reconcileChildren(wipFiber, elements) {
