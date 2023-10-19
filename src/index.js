@@ -137,24 +137,24 @@ function render(element, container) {
   deletions = [];
 }
 
-const Teact = { createElement, render };
+const Teact = { createElement, render, useState };
 
 /** @jsxRuntime classic */
 /** @jsx Teact.createElement */
 // const container = document.getElementById("root");
 // const element = (
-//   <div style="color: red;" id="box">
-//     <a>Hello React</a>
-//     <b />
+//   <div>
+//     <div style="color: red;" id="box" onClick={() => console.warn(" initial ")}>
+//       <a>Hello React</a>
+//       <b />
+//     </div>
 //   </div>
 // );
 // Teact.render(element, container);
 
 // setTimeout(() => {
 //   Teact.render((
-//     <div style="color: green;" id="box" onClick={() => console.warn(" update ")}>
-//       <a>Hello React !!!</a>
-//     </div>
+//     <h1>Hello React !!!</h1>
 //   ), container);
 // }, 2000);
 
@@ -162,9 +162,15 @@ const Teact = { createElement, render };
 /** @jsxRuntime classic */
 /** @jsx Teact.createElement */
 function App(props) {
+  const [count, setCount] = Teact.useState(0);
+  const [showName, setShowName] = Teact.useState(true);
+
   return (
-    <div>
-      <h1>Hi {props.name}</h1>
+    <div id="1" onClick={() => {
+      setCount(prevState => prevState + 1);
+      setShowName(prevState => !prevState);
+    }}>
+      <h1>Hi {showName ? props.name : ""} {count}</h1>
     </div>
   );
 }
@@ -172,6 +178,18 @@ function App(props) {
 const element = <App name="Toby" />;
 const container = document.getElementById("root");
 Teact.render(element, container);
+
+// setTimeout(() => {
+//   function AppUpdate() {
+//     return (
+//       <div id="2" onClick={() => console.warn(" click ")}>
+//         <h1>Hi! </h1>
+//       </div>
+//     );
+//   }
+
+//   Teact.render(<AppUpdate />, container);
+// }, 2000);
 
 /** Character.3 并行模式（分割工作片段） */
 function workLoop(deadLine) {
@@ -210,6 +228,7 @@ function commitWork(fiber) {
   const domParent = domParentFiber.dom;
 
   if (fiber.effectTag === "PLACEMENT" && fiber.dom !== null) {
+    updateListener(fiber.dom, fiber.props);
     domParent.appendChild(fiber.dom);
   } else if (fiber.effectTag === "DELETION") {
     // 要删除的元素不在当前要渲染DOM结构中，而是在上一次渲染的DOM结构中。
@@ -220,6 +239,8 @@ function commitWork(fiber) {
   } else if (fiber.effectTag === "UPDATE" && fiber.dom !== null) {
     updateDom(fiber.dom, fiber.alternate.props, fiber.props);
   }
+
+  if (fiber.effectTag === "DELETION" && fiber.type instanceof Function) return;
 
   commitWork(fiber.child);
   commitWork(fiber.sibling);
@@ -256,11 +277,44 @@ function performUnitOfWork(fiber) {
   }
 }
 
+let wipFiber = null;
+let hookIndex = null;
 function updateFunctionComponent(fiber) {
+  // 初始化hooks相关全局变量，将其挂载在函数式组件Fiber节点上
+  wipFiber = fiber;
+  hookIndex = 0;
+  wipFiber.hooks = [];
+
   // 创建当前元素的子级Fiber节点们，构建Fiber Tree
   // 函数式组件的子级节点通过运行函数获取
   const elements = [fiber.type(fiber.props)];
   reconcileChildren(fiber, elements);
+}
+
+function useState(initial) {
+  const oldHook = wipFiber.alternate && wipFiber.alternate.hooks && wipFiber.alternate.hooks[hookIndex];
+  const hook = { state: oldHook ? oldHook.state : initial, queue: [] };
+
+  const actions = oldHook ? oldHook.queue : [];
+  actions.map(action => {
+    hook.state = action(hook.state);
+  });
+
+  const setState = action => {
+    hook.queue.push(action);
+    wipRoot = {
+      dom: currentRoot.dom,
+      props: currentRoot.props,
+      alternate: currentRoot
+    };
+    nextUnitOfWork = wipRoot;
+    deletions = [];
+  }
+
+  wipFiber.hooks.push(hook);
+  hookIndex++;
+
+  return [hook.state, setState];
 }
 
 function updateHostComponent(fiber) {
@@ -361,4 +415,12 @@ function updateDom(dom, prevProps, nextProps) {
 
   // 添加新增或变化的props
   Object.keys(nextProps).filter(isProperty).filter(isNew(prevProps, nextProps)).map(name => dom[name] = nextProps[name]);
+}
+
+function updateListener(dom, props) {
+  // 添加监听事件
+  Object.keys(props).filter(isEvent).map(name => {
+    const eventType = name.toLowerCase().substring(2);
+    dom.addEventListener(eventType, props[name]);
+  });
 }
